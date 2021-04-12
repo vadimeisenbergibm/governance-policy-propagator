@@ -248,5 +248,72 @@ func (r *ReconcilePolicy) handleDecision(instance *policiesv1.Policy, decision a
 			fmt.Sprintf("Policy %s/%s was updated for cluster %s/%s", instance.GetNamespace(),
 				instance.GetName(), decision.ClusterNamespace, decision.ClusterName))
 	}
+
+	for _, placement := range instance.Status.Placement {
+		r.handlePlacementRule(placement.PlacementRule, decision.ClusterNamespace, instance.GetName(), instance.GetNamespace())
+		r.handlePlacementBinding(placement.PlacementBinding, decision.ClusterNamespace, instance.GetName(), instance.GetNamespace())
+	}
 	return nil
+}
+
+func (r *ReconcilePolicy) handlePlacementRule(placementRule, clusterNamespace, instanceName, instanceNamespace string) {
+	reqLogger := log.WithValues("Policy-Namespace", instanceNamespace, "Policy-Name", instanceName)
+	reqLogger.Info(fmt.Sprintf("Copy placement rule %s into namespace %s", placementRule, clusterNamespace))
+
+	plr := &appsv1.PlacementRule{}
+	err := r.client.Get(context.TODO(), types.NamespacedName{Namespace: instanceNamespace, Name: placementRule}, plr)
+	if err != nil {
+		reqLogger.Error(err, "Failed to get plr...", "Namespace", instanceNamespace, "Name", placementRule)
+		return
+	}
+
+	replicatedPlr := &appsv1.PlacementRule{}
+	err = r.client.Get(context.TODO(), types.NamespacedName{Namespace: clusterNamespace, Name: placementRule}, replicatedPlr)
+
+	if err == nil {
+		//TODO handle update of the replicated placement rule
+		return
+	}
+
+	replicatedPlr = plr.DeepCopy()
+	replicatedPlr.SetNamespace(clusterNamespace)
+	replicatedPlr.SetResourceVersion("")
+
+	err = r.client.Create(context.TODO(), replicatedPlr)
+	if err != nil {
+		// failed to create replicated object, requeue
+		reqLogger.Error(err, "Failed to create replicated placement rule...", "Namespace", clusterNamespace,
+			"Name", plr.Name)
+	}
+}
+
+func (r *ReconcilePolicy) handlePlacementBinding(placementBinding, clusterNamespace, instanceName, instanceNamespace string) {
+	reqLogger := log.WithValues("Policy-Namespace", instanceNamespace, "Policy-Name", instanceName)
+	reqLogger.Info(fmt.Sprintf("Copy placement binding %s into namespace %s", placementBinding, clusterNamespace))
+
+	pb := &policiesv1.PlacementBinding{}
+	err := r.client.Get(context.TODO(), types.NamespacedName{Namespace: instanceNamespace, Name: placementBinding}, pb)
+	if err != nil {
+		reqLogger.Error(err, "Failed to get pb...", "Namespace", instanceNamespace, "Name", placementBinding)
+		return
+	}
+
+	replicatedPb := &policiesv1.PlacementBinding{}
+	err = r.client.Get(context.TODO(), types.NamespacedName{Namespace: clusterNamespace, Name: placementBinding}, replicatedPb)
+
+	if err == nil {
+		//TODO handle update of the replicated placement binding
+		return
+	}
+
+	replicatedPb = pb.DeepCopy()
+	replicatedPb.SetNamespace(clusterNamespace)
+	replicatedPb.SetResourceVersion("")
+
+	err = r.client.Create(context.TODO(), replicatedPb)
+	if err != nil {
+		// failed to create replicated object, requeue
+		reqLogger.Error(err, "Failed to create replicated placement binding...", "Namespace", clusterNamespace,
+			"Name", pb.Name)
+	}
 }
